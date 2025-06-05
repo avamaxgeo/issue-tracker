@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { supabase } from '../lib/supabase';
 import { useRouter } from 'next/router';
-import { AuthError } from '@supabase/supabase-js';
+//import { AuthError } from '@supabase/supabase-js';
 
 export default function Auth() {
   const [email, setEmail] = useState('');

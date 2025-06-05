@@ -5,6 +5,7 @@ import { supabase } from '../lib/supabase';
 import IssueForm from '../components/IssueForm';
 import { Issue } from '../types/issue';
 import { User, AuthChangeEvent, Session } from '@supabase/supabase-js';
+import { RealtimePostgresChangesPayload } from '@supabase/supabase-js'; // Import the correct type
 
 export default function Home() {
   const router = useRouter();
@@ -57,35 +58,49 @@ export default function Home() {
       }
     );
 
-    // BONUS: Real-time sync with Supabase subscriptions
-    const issuesSubscription = supabase
-      .channel('public:issues')
-      .on('postgres_changes', 
-        { event: '*', schema: 'public', table: 'issues', filter: `user_id=eq.${user?.id}` }, 
-        (payload: any) => {
-          console.log('Change received!', payload);
-          if (payload.eventType === 'INSERT') {
-            setIssues((prevIssues) => [payload.new as Issue, ...prevIssues]);
-          } else if (payload.eventType === 'UPDATE') {
-            setIssues((prevIssues) =>
-              prevIssues.map((issue) =>
-                issue.id === payload.old.id ? (payload.new as Issue) : issue
-              )
-            );
-          } else if (payload.eventType === 'DELETE') {
-            setIssues((prevIssues) =>
-              prevIssues.filter((issue) => issue.id !== payload.old.id)
-            );
+    // Initialize issuesSubscription outside the if block
+    // It will be assigned only if user.id is present
+    let issuesSubscription: ReturnType<typeof supabase.channel> | undefined;
+
+    // Only set up real-time subscription if user.id is available
+    if (user?.id) {
+      issuesSubscription = supabase
+        .channel('public:issues')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'issues', filter: `user_id=eq.${user.id}` },
+          // Type the payload correctly using Supabase's RealtimePostgresChangesPayload
+          (payload: RealtimePostgresChangesPayload<Issue>) => {
+            console.log('Change received!', payload);
+            if (payload.eventType === 'INSERT') {
+              // Ensure new is of type Issue before adding
+              setIssues((prevIssues) => [payload.new as Issue, ...prevIssues]);
+            } else if (payload.eventType === 'UPDATE') {
+              // Ensure new is of type Issue before updating
+              setIssues((prevIssues) =>
+                prevIssues.map((issue) =>
+                  issue.id === payload.old.id ? (payload.new as Issue) : issue
+                )
+              );
+            } else if (payload.eventType === 'DELETE') {
+              setIssues((prevIssues) =>
+                prevIssues.filter((issue) => issue.id !== payload.old.id)
+              );
+            }
           }
-        }
-      )
-      .subscribe();
+        )
+        .subscribe();
+    }
+
 
     return () => {
       authListener.subscription.unsubscribe();
-      issuesSubscription.unsubscribe();
+      // Only unsubscribe if the subscription was successfully created
+      if (issuesSubscription) {
+        issuesSubscription.unsubscribe();
+      }
     };
-  }, [router, user?.id, fetchIssues]);
+  }, [router, user?.id, fetchIssues]); // Depend on user?.id directly to re-run on user ID change
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
